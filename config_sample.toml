@@ -1,0 +1,18 @@
+# Geofence centered on home. Find your coordinates by right-clicking your
+# house in Google Maps (the first number shown is latitude, second longitude),
+# then save a copy of this file as config.toml with your values filled in.
+[home]
+latitude = 0.0 # <-- replace with your latitude
+longitude = 0.0 # <-- replace with your longitude
+radius_km = 30 # the position API takes nautical miles; this is converted (1 NM = 1.852 km, API cap 250 NM)
+
+[polling]
+interval_seconds = 15 # be polite: the free feed asks for ~1 request/second max
+
+[api]
+adsb_base_url = "https://api.adsb.lol"
+hexdb_base_url = "https://hexdb.io"
+
+[filter]
+include_ground = false # living next to an airport, taxiing planes would otherwise dominate
+max_seen_pos_seconds = 90 # skip aircraft whose last position report is older than this
