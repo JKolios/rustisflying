@@ -17,6 +17,7 @@ pub struct Config {
     pub polling: Polling,
     pub api: Api,
     pub filter: Filter,
+    pub web: Web,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -45,6 +46,13 @@ pub struct Api {
 pub struct Filter {
     pub include_ground: bool,
     pub max_seen_pos_seconds: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Web {
+    pub enabled: bool,
+    pub bind: String,
 }
 
 impl Default for Home {
@@ -79,6 +87,15 @@ impl Default for Filter {
         Self {
             include_ground: false,
             max_seen_pos_seconds: 90.0,
+        }
+    }
+}
+
+impl Default for Web {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind: "127.0.0.1:8080".into(),
         }
     }
 }
@@ -125,6 +142,8 @@ mod tests {
         assert_eq!(config.polling.interval_seconds, 15);
         assert_eq!(config.api.adsb_base_url, "https://api.adsb.lol");
         assert_eq!(config.filter.max_seen_pos_seconds, 90.0);
+        assert!(config.web.enabled);
+        assert_eq!(config.web.bind, "127.0.0.1:8080");
     }
 
     #[test]

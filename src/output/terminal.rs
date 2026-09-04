@@ -1,53 +1,60 @@
 //! Plain-text terminal rendering, one block per tick.
 
 use super::FlightOutput;
-use crate::model::{AirportRef, FlightInfo};
+use crate::model::{AirportRef, FlightInfo, TickResult};
 use chrono::Local;
 
 pub struct Terminal;
 
 impl FlightOutput for Terminal {
-    fn render_closest(&self, info: &FlightInfo) {
-        let stamp = Local::now().format("%H:%M:%S");
-        let mut line = format!("[{stamp}] {}", info.callsign);
-        if let Some(airline) = &info.airline {
-            line.push_str(&format!(" · {airline}"));
+    fn emit(&self, result: &TickResult) {
+        match result {
+            TickResult::Closest { flight } => render_closest(flight),
+            TickResult::Empty { radius_km } => render_empty(*radius_km),
         }
-        println!("{line}");
+    }
+}
 
-        match (&info.origin, &info.destination) {
-            (Some(origin), Some(destination)) => println!(
-                "    {} → {}",
-                format_airport(origin),
-                format_airport(destination)
-            ),
-            (Some(airport), None) | (None, Some(airport)) => {
-                println!("    near {}", format_airport(airport))
-            }
-            (None, None) => println!("    route unknown"),
-        }
+fn render_closest(info: &FlightInfo) {
+    let stamp = Local::now().format("%H:%M:%S");
+    let mut line = format!("[{stamp}] {}", info.callsign);
+    if let Some(airline) = &info.airline {
+        line.push_str(&format!(" · {airline}"));
+    }
+    println!("{line}");
 
-        let mut details = Vec::new();
-        details.push(format!("{:.1} km away", info.distance_km));
-        if let Some(alt) = info.altitude_ft {
-            details.push(format!("{} ft", alt.round() as i64));
+    match (&info.origin, &info.destination) {
+        (Some(origin), Some(destination)) => println!(
+            "    {} → {}",
+            format_airport(origin),
+            format_airport(destination)
+        ),
+        (Some(airport), None) | (None, Some(airport)) => {
+            println!("    near {}", format_airport(airport))
         }
-        if let Some(speed) = info.ground_speed_kmh {
-            details.push(format!("{} km/h", speed.round() as i64));
-        }
-        if let Some(kind) = &info.aircraft_type {
-            details.push(kind.clone());
-        }
-        if let Some(reg) = &info.registration {
-            details.push(reg.clone());
-        }
-        println!("    {}", details.join(" · "));
+        (None, None) => println!("    route unknown"),
     }
 
-    fn render_empty(&self, radius_km: f64) {
-        let stamp = Local::now().format("%H:%M:%S");
-        println!("[{stamp}] No aircraft within {radius_km:.0} km of home.");
+    let mut details = Vec::new();
+    details.push(format!("{:.1} km away", info.distance_km));
+    if let Some(alt) = info.altitude_ft {
+        details.push(format!("{} ft", alt.round() as i64));
     }
+    if let Some(speed) = info.ground_speed_kmh {
+        details.push(format!("{} km/h", speed.round() as i64));
+    }
+    if let Some(kind) = &info.aircraft_type {
+        details.push(kind.clone());
+    }
+    if let Some(reg) = &info.registration {
+        details.push(reg.clone());
+    }
+    println!("    {}", details.join(" · "));
+}
+
+fn render_empty(radius_km: f64) {
+    let stamp = Local::now().format("%H:%M:%S");
+    println!("[{stamp}] No aircraft within {radius_km:.0} km of home.");
 }
 
 fn format_airport(airport: &AirportRef) -> String {
@@ -79,5 +86,24 @@ mod tests {
             "Logan International Airport");
         assert_eq!(format_airport(&airport(None, Some("BOS"))), "BOS (KBOS)");
         assert_eq!(format_airport(&airport(None, None)), "KBOS");
+    }
+
+    #[test]
+    fn terminal_emits_both_variants_without_panicking() {
+        let terminal = Terminal;
+        terminal.emit(&TickResult::Empty { radius_km: 30.0 });
+        terminal.emit(&TickResult::Closest {
+            flight: Box::new(FlightInfo {
+                callsign: "TEST1".into(),
+                airline: None,
+                origin: None,
+                destination: None,
+                registration: None,
+                aircraft_type: None,
+                altitude_ft: None,
+                ground_speed_kmh: None,
+                distance_km: 1.0,
+            }),
+        });
     }
 }

@@ -2,8 +2,8 @@
 //!
 //! On a timer, queries a live position feed for aircraft inside a circular
 //! geofence around the configured home coordinates, enriches the closest one
-//! (airline from its callsign, route from hexdb.io), and prints what it
-//! found. Exit with Ctrl+C.
+//! (airline from its callsign, route from hexdb.io), and publishes the
+//! result to every configured output (terminal, web UI). Exit with Ctrl+C.
 
 mod config;
 mod enrich;
@@ -11,13 +11,15 @@ mod geo;
 mod model;
 mod output;
 mod provider;
+mod web;
 
 use config::Config;
 use enrich::{Enricher, HexdbClient};
 use geo::{Geofence, closest};
-use model::Aircraft;
-use output::{FlightOutput, Terminal};
+use model::{Aircraft, TickResult};
+use output::{FlightOutput, Terminal, WebState};
 use provider::{AdsbLolClient, FlightProvider};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -40,7 +42,20 @@ async fn main() -> anyhow::Result<()> {
     let adsb = AdsbLolClient::new(&config.api.adsb_base_url)?;
     let hexdb = HexdbClient::new(&config.api.hexdb_base_url)?;
     let mut enricher = Enricher::new(Some(hexdb));
-    let output = Terminal;
+
+    // Terminal is always on; the web UI shares its state with the HTTP
+    // server spawned below.
+    let mut outputs: Vec<Box<dyn FlightOutput + Send + Sync>> = vec![Box::new(Terminal)];
+    if config.web.enabled {
+        let state = Arc::new(WebState::new());
+        let serve = web::serve(config.web.bind.clone(), state.clone());
+        tokio::spawn(async move {
+            if let Err(e) = serve.await {
+                eprintln!("web server stopped: {e:#}");
+            }
+        });
+        outputs.push(Box::new(state));
+    }
 
     let interval_seconds = config.polling.interval_seconds.max(MIN_INTERVAL_SECONDS);
     let mut tick = interval(Duration::from_secs(interval_seconds));
@@ -55,14 +70,14 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         tick.tick().await; // first tick completes immediately
-        run_tick(&adsb, &mut enricher, &output, &fence, &config).await;
+        run_tick(&adsb, &mut enricher, &outputs, &fence, &config).await;
     }
 }
 
 async fn run_tick(
     provider: &impl FlightProvider,
     enricher: &mut Enricher,
-    output: &impl FlightOutput,
+    outputs: &[Box<dyn FlightOutput + Send + Sync>],
     fence: &Geofence,
     config: &Config,
 ) {
@@ -87,12 +102,19 @@ async fn run_tick(
         })
         .collect();
 
-    match closest(fence, &candidates) {
+    let result = match closest(fence, &candidates) {
         Some(ac) => {
             let distance = fence.distance_km(ac.lat, ac.lon);
-            let info = enricher.enrich(ac, distance).await;
-            output.render_closest(&info);
+            TickResult::Closest {
+                flight: Box::new(enricher.enrich(ac, distance).await),
+            }
         }
-        None => output.render_empty(fence.radius_km),
+        None => TickResult::Empty {
+            radius_km: fence.radius_km,
+        },
+    };
+
+    for output in outputs {
+        output.emit(&result);
     }
 }

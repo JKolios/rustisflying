@@ -1,7 +1,7 @@
 //! Data models: raw aircraft records from the position feed and the
 //! enriched display model produced after route/airline lookup.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Barometric altitude as reported by the feed: either a value in feet or
 /// the string `"ground"` for aircraft on the surface.
@@ -66,7 +66,7 @@ pub struct PointResponse {
 }
 
 /// A resolved airport on either end of a route.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AirportRef {
     pub icao: String,
     pub iata: Option<String>,
@@ -74,7 +74,7 @@ pub struct AirportRef {
 }
 
 /// The enriched, display-ready description of one aircraft.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlightInfo {
     pub callsign: String,
     pub airline: Option<String>,
@@ -87,6 +87,18 @@ pub struct FlightInfo {
     pub ground_speed_kmh: Option<f64>,
     /// Distance from the geofence center in km.
     pub distance_km: f64,
+}
+
+/// The outcome of one polling tick: what the tracker currently knows.
+/// This is the unit every output sink (terminal, web UI, future E-ink
+/// renderer) consumes, and the JSON schema of the web API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum TickResult {
+    /// The aircraft closest to home this tick (boxed to keep the enum small).
+    Closest { flight: Box<FlightInfo> },
+    /// No aircraft in the geofence this tick.
+    Empty { radius_km: f64 },
 }
 
 #[cfg(test)]
@@ -122,5 +134,38 @@ mod tests {
         assert_eq!(ac.flight.as_deref(), Some("AEE251  "));
         assert_eq!(ac.alt_baro.as_ref().unwrap().feet(), Some(36000.0));
         assert_eq!(ac.t.as_deref(), Some("A320"));
+    }
+
+    #[test]
+    fn tick_result_serializes_for_the_api() {
+        let empty = serde_json::to_value(TickResult::Empty { radius_km: 30.0 }).unwrap();
+        assert_eq!(
+            empty,
+            serde_json::json!({"status": "empty", "radius_km": 30.0})
+        );
+
+        let flight = FlightInfo {
+            callsign: "AEE166".into(),
+            airline: Some("Aegean Airlines".into()),
+            origin: Some(AirportRef {
+                icao: "LGAV".into(),
+                iata: Some("ATH".into()),
+                name: Some("Athens International Airport".into()),
+            }),
+            destination: None,
+            registration: Some("SX-OBN".into()),
+            aircraft_type: Some("AT76".into()),
+            altitude_ft: Some(6525.0),
+            ground_speed_kmh: Some(296.0),
+            distance_km: 5.6,
+        };
+        let closest = serde_json::to_value(TickResult::Closest {
+            flight: Box::new(flight),
+        })
+        .unwrap();
+        assert_eq!(closest["status"], "closest");
+        assert_eq!(closest["flight"]["callsign"], "AEE166");
+        assert_eq!(closest["flight"]["origin"]["iata"], "ATH");
+        assert_eq!(closest["flight"]["destination"], serde_json::Value::Null);
     }
 }

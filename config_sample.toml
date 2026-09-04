@@ -16,3 +16,7 @@ hexdb_base_url = "https://hexdb.io"
 [filter]
 include_ground = false # living next to an airport, taxiing planes would otherwise dominate
 max_seen_pos_seconds = 90 # skip aircraft whose last position report is older than this
+
+[web]
+enabled = true
+bind = "127.0.0.1:8080" # use "0.0.0.0:8080" to expose the UI on your LAN (e.g. from a phone)

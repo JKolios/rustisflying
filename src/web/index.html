@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rustisflying</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #0b0e14; color: #e6edf3;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  main { text-align: center; padding: 2rem; max-width: 64rem; }
+  #status { font-size: clamp(2.5rem, 9vw, 5.5rem); font-weight: 700; letter-spacing: .04em; margin: 0; word-break: break-all; }
+  #airline { font-size: clamp(1.1rem, 3vw, 1.9rem); color: #8b949e; margin: .6rem 0 0; }
+  #route { font-size: clamp(1.3rem, 4vw, 2.4rem); margin: 1.8rem 0; line-height: 1.4; }
+  #route .arrow { color: #58a6ff; }
+  #details { display: flex; flex-wrap: wrap; gap: 1.2rem 2.5rem; justify-content: center; font-size: clamp(1rem, 2.6vw, 1.5rem); }
+  #details .label { display: block; color: #6e7681; font-size: .7em; text-transform: uppercase; letter-spacing: .12em; margin-bottom: .2em; }
+  #board.waiting #status { color: #8b949e; font-size: clamp(1.4rem, 4vw, 2.2rem); font-weight: 400; }
+  #board.empty #status { color: #d29922; }
+  #board.error #status { color: #f85149; font-size: clamp(1.2rem, 3.5vw, 1.8rem); }
+  footer { position: fixed; bottom: 1rem; color: #6e7681; font-size: .85rem; }
+</style>
+</head>
+<body>
+<main id="board" class="waiting">
+  <h1 id="status">waiting for first update…</h1>
+  <div id="airline"></div>
+  <p id="route"></p>
+  <div id="details"></div>
+</main>
+<footer>rustisflying · <span id="updated"></span></footer>
+<script>
+  const el = id => document.getElementById(id);
+  const board = el('board'), statusEl = el('status'), airlineEl = el('airline'),
+        routeEl = el('route'), detailsEl = el('details'), updatedEl = el('updated');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g,
+      c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function airport(a) {
+    if (!a) return null;
+    if (a.name && a.iata) return a.name + ' (' + a.iata + ')';
+    if (a.name) return a.name;
+    if (a.iata) return a.iata + ' (' + a.icao + ')';
+    return a.icao;
+  }
+
+  function render(data) {
+    if (data === null) {
+      board.className = 'waiting';
+      statusEl.textContent = 'waiting for first update…';
+      airlineEl.textContent = ''; routeEl.textContent = ''; detailsEl.innerHTML = '';
+      return;
+    }
+    if (data.status === 'empty') {
+      board.className = 'empty';
+      statusEl.textContent = 'no aircraft within ' + data.radius_km + ' km';
+      airlineEl.textContent = 'clear skies overhead';
+      routeEl.textContent = ''; detailsEl.innerHTML = '';
+      return;
+    }
+    const f = data.flight;
+    board.className = 'closest';
+    statusEl.textContent = f.callsign;
+    airlineEl.textContent = f.airline || '';
+
+    const o = airport(f.origin), d = airport(f.destination);
+    routeEl.innerHTML =
+      (o && d) ? esc(o) + ' <span class="arrow">&rarr;</span> ' + esc(d)
+      : (o || d) ? 'near ' + esc(o || d)
+      : 'route unknown';
+
+    const num = (v, unit) => v == null ? '&mdash;' : Math.round(v).toLocaleString() + (unit ? ' ' + unit : '');
+    const cells = [
+      ['distance', f.distance_km == null ? '&mdash;' : Number(f.distance_km).toFixed(1) + ' km'],
+      ['altitude', num(f.altitude_ft, 'ft')],
+      ['speed', num(f.ground_speed_kmh, 'km/h')],
+      ['type', f.aircraft_type ? esc(f.aircraft_type) : '&mdash;'],
+      ['registration', f.registration ? esc(f.registration) : '&mdash;'],
+    ];
+    detailsEl.innerHTML = cells.map(([label, value]) =>
+      '<span class="cell"><span class="label">' + label + '</span>' + value + '</span>').join('');
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch('/api/latest', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      render(await res.json());
+      updatedEl.textContent = 'updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      board.className = 'error';
+      statusEl.textContent = 'lost contact with tracker (' + e.message + ')';
+    }
+  }
+
+  setInterval(refresh, 10000); // the tracker ticks every 15 s; poll a bit faster
+  refresh();
+</script>
+</body>
+</html>

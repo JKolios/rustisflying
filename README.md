@@ -31,6 +31,23 @@ warning is printed.
 
 Stop with `Ctrl+C`.
 
+## Web UI
+
+Enabled by default; see the `[web]` section of `config.toml`:
+
+```toml
+[web]
+enabled = true
+bind = "127.0.0.1:8080" # use "0.0.0.0:8080" to expose the UI on your LAN (e.g. from a phone)
+```
+
+Then open <http://localhost:8080/> — a self-contained dark page showing
+the closest aircraft (callsign, airline, route, distance, altitude, speed,
+type, registration) that refreshes itself every 10 seconds. The same
+snapshot is available as JSON at `/api/latest` (the schema is the
+`TickResult` type in `src/model.rs`); before the first tick it returns
+`null`. The terminal output keeps printing regardless.
+
 ## How it works
 
 Each tick (default every 15 s):
@@ -74,15 +91,17 @@ See `config.toml` — every key has a default (documented in
 src/
 ├── main.rs            # async timer loop + per-tick orchestration
 ├── config.rs          # config.toml loading (serde defaults)
-├── model.rs           # feed Aircraft + display FlightInfo models
+├── model.rs           # feed Aircraft, display FlightInfo, TickResult snapshot
 ├── geo.rs             # haversine, Geofence, closest selection
 ├── provider/          # position feeds behind the FlightProvider trait
 │   └── adsb_lol.rs
 ├── enrich/            # route/airline enrichment behind Enricher
 │   ├── airlines.rs    #   embedded ICAO designator → airline table
 │   └── hexdb.rs       #   route + airport name client
-└── output/            # renderers behind the FlightOutput trait
-    └── terminal.rs
+├── output/            # renderers behind the FlightOutput trait
+│   ├── terminal.rs    #   plain-text sink
+│   └── web_state.rs   #   shared state sink feeding the web server
+└── web/               # axum web UI (page + /api/latest JSON)
 ```
 
 The three traits (`FlightProvider`, `FlightOutput`, and the `Enricher`

@@ -19,6 +19,7 @@ const AIRLINES: &[(&str, &str)] = &[
     ("RJA", "Royal Jordanian"),
     ("AMC", "Air Malta"),
     ("NOS", "Neos"),
+    ("SEH", "Sky Express"),
     ("ISR", "Israir"),
     ("AIZ", "Arkia Israeli Airlines"),
     // Europe
@@ -112,6 +113,7 @@ mod tests {
         assert_eq!(airline_name("DAL123"), Some("Delta Air Lines"));
         assert_eq!(airline_name("AEE251"), Some("Aegean Airlines"));
         assert_eq!(airline_name("BAW16F"), Some("British Airways"));
+        assert_eq!(airline_name("SEH8HR"), Some("Sky Express"));
         assert_eq!(airline_name("N12345"), None);
         assert_eq!(airline_name("ZZZ999"), None); // not in table
     }

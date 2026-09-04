@@ -1,16 +1,18 @@
 //! Output sinks.
 //!
-//! [`FlightOutput`] is the seam for the planned renderers: a text-based web
-//! UI and an E-ink image generator will be additional implementations.
+//! [`FlightOutput`] is the seam for every renderer: the terminal, the web
+//! UI's shared state, and the planned E-ink image generator all consume the
+//! same [`TickResult`] snapshot.
 
-use crate::model::FlightInfo;
+use crate::model::TickResult;
 
 pub mod terminal;
+pub mod web_state;
 
 pub use terminal::Terminal;
+pub use web_state::WebState;
 
-/// Where a tick's result is rendered.
+/// A sink for tick results.
 pub trait FlightOutput {
-    fn render_closest(&self, info: &FlightInfo);
-    fn render_empty(&self, radius_km: f64);
+    fn emit(&self, result: &TickResult);
 }
