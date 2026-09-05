@@ -5,6 +5,8 @@ home on a timer, and prints details about the closest aircraft: callsign,
 airline, origin, destination, distance, altitude, speed, aircraft type and
 registration.
 
+<img width="756" height="1006" alt="epaper_sample" src="https://github.com/user-attachments/assets/071df5b9-d153-4ca3-8d19-831174302a6a" />
+
 ```
 [20:33:19] AEE166 · Aegean Airlines
     Athens International Airport (Eleftherios Venizelos Airport) (ATH) → Ioannina National Airport (IOA)
