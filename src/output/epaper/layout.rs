@@ -11,8 +11,10 @@ use chrono::Local;
 /// Airport names are capped for the panel: at most this many words...
 const AIRPORT_MAX_WORDS: usize = 3;
 /// ...and this many characters, so two labels plus the route arrow fit the
-/// 264 px route line; a cut name is marked with an ellipsis.
+/// route line; a cut name is marked with an ellipsis.
 const AIRPORT_MAX_CHARS: usize = 14;
+/// Airline names are capped to keep the 14 pt line inside the panel.
+const AIRLINE_MAX_CHARS: usize = 24;
 
 /// The complete content of one frame.
 #[derive(Debug, Clone, PartialEq)]
@@ -29,7 +31,7 @@ pub enum Body {
         callsign: String,
         airline: Option<String>,
         route: Option<Route>,
-        /// e.g. "34000 ft"; `trend` renders as an arrow next to it.
+        /// e.g. "34,000 ft"; `trend` renders as an arrow next to it.
         altitude: Option<String>,
         trend: Option<VerticalDirection>,
         /// e.g. "742 km/h".
@@ -68,15 +70,15 @@ pub fn layout(result: &TickResult) -> Screen {
     let body = match result {
         TickResult::Closest { flight } => Body::Closest {
             callsign: flight.callsign.clone(),
-            airline: flight.airline.clone(),
+            airline: flight.airline.as_deref().map(trim_airline),
             route: route_line(&flight.origin, &flight.destination),
             altitude: flight
                 .altitude_ft
-                .map(|a| format!("{} ft", a.round() as i64)),
+                .map(|a| format!("{} ft", group_thousands(a.round() as i64))),
             trend: flight.vertical_direction,
             speed: flight
                 .ground_speed_kmh
-                .map(|s| format!("{} km/h", s.round() as i64)),
+                .map(|s| format!("{} km/h", group_thousands(s.round() as i64))),
             heading: flight.heading,
             distance: format!("{:.1} km away", flight.distance_km),
             aircraft_type: flight.aircraft_type.clone(),
@@ -107,6 +109,30 @@ fn airport_label(airport: &AirportRef) -> AirportLabel {
             .clone()
             .unwrap_or_else(|| airport.icao.clone()),
     }
+}
+
+/// Format an integer with thousands separators ("34000" -> "34,000"); big
+/// altitudes are much easier to read on the panel with them.
+fn group_thousands(n: i64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Trim an airline name to the panel width, marking a cut with an ellipsis.
+fn trim_airline(name: &str) -> String {
+    let collapsed: String = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= AIRLINE_MAX_CHARS {
+        return collapsed;
+    }
+    let stem: String = collapsed.chars().take(AIRLINE_MAX_CHARS - 1).collect();
+    format!("{}…", stem.trim_end())
 }
 
 /// Trim an airport name for the panel: the first [`AIRPORT_MAX_WORDS`] words
@@ -166,6 +192,27 @@ mod tests {
     }
 
     #[test]
+    fn thousands_separators_group_from_the_right() {
+        assert_eq!(group_thousands(0), "0");
+        assert_eq!(group_thousands(6525), "6,525");
+        assert_eq!(group_thousands(34000), "34,000");
+        assert_eq!(group_thousands(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn trim_airline_caps_with_ellipsis() {
+        assert_eq!(trim_airline("Aegean Airlines"), "Aegean Airlines");
+        // 23 chars fits the 24-char cap; 26 does not.
+        assert_eq!(trim_airline("China Southern Airlines"), "China Southern Airlines");
+        assert_eq!(
+            trim_airline("Aeroflot Russian Airlines"),
+            "Aeroflot Russian Airlin…"
+        );
+        // Whitespace runs collapse before measuring.
+        assert_eq!(trim_airline("Air  France"), "Air France");
+    }
+
+    #[test]
     fn layout_closest_carries_all_fields() {
         let flight = FlightInfo {
             callsign: "AEE166".into(),
@@ -200,7 +247,7 @@ mod tests {
         assert_eq!(callsign, "AEE166");
         assert_eq!(airline.as_deref(), Some("Aegean Airlines"));
         assert!(matches!(route, Some(Route::Between { .. })));
-        assert_eq!(altitude.as_deref(), Some("6525 ft"));
+        assert_eq!(altitude.as_deref(), Some("6,525 ft"));
         assert_eq!(trend, Some(VerticalDirection::Descending));
         assert_eq!(speed.as_deref(), Some("296 km/h"));
         assert_eq!(heading, Some(CompassPoint::Northeast));

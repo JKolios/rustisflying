@@ -73,8 +73,13 @@ impl EpaperOutput {
         let mut epd = Epd2in7b::new(&mut spi, busy, dc, rst, &mut delay, None)
             .context("initializing the e-paper driver")?;
         // Start from a clean white panel rather than whatever the last run
-        // left behind.
-        epd.clear_frame(&mut spi, &mut delay).context("clearing the panel")?;
+        // left behind. Use our own blank frame (not the driver's
+        // `clear_frame`): the chromatic plane's polarity is inverted
+        // relative to the black plane, so a driver-level clear doesn't
+        // reliably produce white on both layers.
+        let blank = render::blank();
+        epd.update_color_frame(&mut spi, &mut delay, blank.black.buffer(), blank.chromatic.buffer())
+            .context("clearing the panel")?;
         epd.display_frame(&mut spi, &mut delay)
             .context("flushing the initial clear")?;
         epd.sleep(&mut spi, &mut delay).context("sleeping the panel")?;
