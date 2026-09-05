@@ -46,9 +46,7 @@ pub struct Aircraft {
     /// Barometric vertical rate in ft/min (negative = descending).
     #[serde(default)]
     pub baro_rate: Option<f64>,
-    /// Track over ground in degrees. Reserved for future renderers
-    /// (e-ink compass arrow, web UI).
-    #[allow(dead_code)]
+    /// Track over ground in degrees true.
     #[serde(default)]
     pub track: Option<f64>,
     /// Registration (tail number).
@@ -109,6 +107,65 @@ impl VerticalDirection {
     }
 }
 
+/// The eight points of the compass, derived from an aircraft's track angle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompassPoint {
+    North,
+    Northeast,
+    East,
+    Southeast,
+    South,
+    Southwest,
+    West,
+    Northwest,
+}
+
+impl CompassPoint {
+    /// Quantize a heading in degrees true into the nearest 45° sector.
+    pub fn from_degrees(deg: f64) -> Self {
+        let sector = ((deg.rem_euclid(360.0) + 22.5) / 45.0) as u8 % 8;
+        match sector {
+            0 => CompassPoint::North,
+            1 => CompassPoint::Northeast,
+            2 => CompassPoint::East,
+            3 => CompassPoint::Southeast,
+            4 => CompassPoint::South,
+            5 => CompassPoint::Southwest,
+            6 => CompassPoint::West,
+            _ => CompassPoint::Northwest,
+        }
+    }
+
+    /// An arrow pointing in this direction, for heading displays.
+    pub fn arrow(&self) -> &'static str {
+        match self {
+            CompassPoint::North => "↑",
+            CompassPoint::Northeast => "↗",
+            CompassPoint::East => "→",
+            CompassPoint::Southeast => "↘",
+            CompassPoint::South => "↓",
+            CompassPoint::Southwest => "↙",
+            CompassPoint::West => "←",
+            CompassPoint::Northwest => "↖",
+        }
+    }
+
+    /// The usual two-letter abbreviation ("NE", "SW", …).
+    pub fn abbrev(&self) -> &'static str {
+        match self {
+            CompassPoint::North => "N",
+            CompassPoint::Northeast => "NE",
+            CompassPoint::East => "E",
+            CompassPoint::Southeast => "SE",
+            CompassPoint::South => "S",
+            CompassPoint::Southwest => "SW",
+            CompassPoint::West => "W",
+            CompassPoint::Northwest => "NW",
+        }
+    }
+}
+
 /// The enriched, display-ready description of one aircraft.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlightInfo {
@@ -123,6 +180,8 @@ pub struct FlightInfo {
     pub ground_speed_kmh: Option<f64>,
     /// Climb/descent trend, derived from the feed's barometric rate.
     pub vertical_direction: Option<VerticalDirection>,
+    /// Heading as the nearest compass point, derived from the track angle.
+    pub heading: Option<CompassPoint>,
     /// Distance from the geofence center in km.
     pub distance_km: f64,
 }
@@ -191,6 +250,20 @@ mod tests {
     }
 
     #[test]
+    fn compass_point_from_degrees() {
+        assert_eq!(CompassPoint::from_degrees(0.0), CompassPoint::North);
+        assert_eq!(CompassPoint::from_degrees(90.0), CompassPoint::East);
+        assert_eq!(CompassPoint::from_degrees(182.3), CompassPoint::South);
+        // Sectors are centered on each point: ±22.5° around it.
+        assert_eq!(CompassPoint::from_degrees(22.4), CompassPoint::North);
+        assert_eq!(CompassPoint::from_degrees(22.5), CompassPoint::Northeast);
+        assert_eq!(CompassPoint::from_degrees(359.9), CompassPoint::North);
+        // Out-of-range and negative angles normalize onto the compass rose.
+        assert_eq!(CompassPoint::from_degrees(360.0), CompassPoint::North);
+        assert_eq!(CompassPoint::from_degrees(-45.0), CompassPoint::Northwest);
+    }
+
+    #[test]
     fn tick_result_serializes_for_the_api() {
         let empty = serde_json::to_value(TickResult::Empty { radius_km: 30.0 }).unwrap();
         assert_eq!(
@@ -212,6 +285,7 @@ mod tests {
             altitude_ft: Some(6525.0),
             ground_speed_kmh: Some(296.0),
             vertical_direction: Some(VerticalDirection::Descending),
+            heading: Some(CompassPoint::Northeast),
             distance_km: 5.6,
         };
         let closest = serde_json::to_value(TickResult::Closest {
@@ -222,6 +296,7 @@ mod tests {
         assert_eq!(closest["flight"]["callsign"], "AEE166");
         assert_eq!(closest["flight"]["origin"]["iata"], "ATH");
         assert_eq!(closest["flight"]["vertical_direction"], "descending");
+        assert_eq!(closest["flight"]["heading"], "northeast");
         assert_eq!(closest["flight"]["destination"], serde_json::Value::Null);
     }
 }

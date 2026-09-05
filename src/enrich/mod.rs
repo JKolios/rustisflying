@@ -8,7 +8,7 @@
 //! avoids hammering hexdb on every tick and keeps repeated sightings of the
 //! same flight cheap.
 
-use crate::model::{Aircraft, AirportRef, FlightInfo, VerticalDirection};
+use crate::model::{Aircraft, AirportRef, CompassPoint, FlightInfo, VerticalDirection};
 use std::collections::HashMap;
 
 pub mod airlines;
@@ -76,6 +76,7 @@ impl Enricher {
             altitude_ft: ac.alt_baro.as_ref().and_then(|a| a.feet()),
             ground_speed_kmh: ac.gs.map(|gs| gs * KMH_PER_KNOT),
             vertical_direction: ac.baro_rate.map(VerticalDirection::from_rate),
+            heading: ac.track.map(CompassPoint::from_degrees),
             distance_km,
         }
     }

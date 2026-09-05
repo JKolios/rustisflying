@@ -77,11 +77,14 @@
       : 'route unknown';
 
     const num = (v, unit) => v == null ? '&mdash;' : Math.round(v).toLocaleString() + (unit ? ' ' + unit : '');
+    const headings = { north: '↑ N', northeast: '↗ NE', east: '→ E', southeast: '↘ SE',
+                       south: '↓ S', southwest: '↙ SW', west: '← W', northwest: '↖ NW' };
     const cells = [
       ['distance', f.distance_km == null ? '&mdash;' : Number(f.distance_km).toFixed(1) + ' km'],
       ['altitude', num(f.altitude_ft, 'ft')],
       ['trend', f.vertical_direction ? esc(f.vertical_direction === 'level' ? 'level flight' : f.vertical_direction) : '&mdash;'],
       ['speed', num(f.ground_speed_kmh, 'km/h')],
+      ['heading', f.heading ? esc(headings[f.heading] || f.heading) : '&mdash;'],
       ['type', f.aircraft_type ? esc(f.aircraft_type) : '&mdash;'],
       ['registration', f.registration ? esc(f.registration) : '&mdash;'],
     ];
