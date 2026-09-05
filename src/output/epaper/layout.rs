@@ -6,22 +6,19 @@
 //! dropped (no room) and airport names are trimmed to fit the 264 px panel.
 
 use crate::model::{AirportRef, CompassPoint, TickResult, VerticalDirection};
-use chrono::Local;
 
 /// Airport names are capped for the panel: at most this many words...
 const AIRPORT_MAX_WORDS: usize = 3;
 /// ...and this many characters, so two labels plus the route arrow fit the
 /// route line; a cut name is marked with an ellipsis.
 const AIRPORT_MAX_CHARS: usize = 14;
-/// Airline names are capped to keep the 14 pt line inside the panel.
-const AIRLINE_MAX_CHARS: usize = 24;
+/// Airline names are capped to keep the 18 pt line inside the panel
+/// (248 px of usable width at a 12 px advance).
+const AIRLINE_MAX_CHARS: usize = 20;
 
 /// The complete content of one frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Screen {
-    /// "HH:MM" local time of the tick, always shown so a stale panel is
-    /// obvious at a glance.
-    pub stamp: String,
     pub body: Body,
 }
 
@@ -66,7 +63,6 @@ pub struct AirportLabel {
 
 /// Build the screen content for one tick.
 pub fn layout(result: &TickResult) -> Screen {
-    let stamp = Local::now().format("%H:%M").to_string();
     let body = match result {
         TickResult::Closest { flight } => Body::Closest {
             callsign: flight.callsign.clone(),
@@ -87,7 +83,7 @@ pub fn layout(result: &TickResult) -> Screen {
             radius_km: *radius_km,
         },
     };
-    Screen { stamp, body }
+    Screen { body }
 }
 
 fn route_line(origin: &Option<AirportRef>, destination: &Option<AirportRef>) -> Option<Route> {
@@ -202,11 +198,11 @@ mod tests {
     #[test]
     fn trim_airline_caps_with_ellipsis() {
         assert_eq!(trim_airline("Aegean Airlines"), "Aegean Airlines");
-        // 23 chars fits the 24-char cap; 26 does not.
-        assert_eq!(trim_airline("China Southern Airlines"), "China Southern Airlines");
+        // 19 chars fits the 20-char cap; 23 does not.
+        assert_eq!(trim_airline("British Airways 123"), "British Airways 123");
         assert_eq!(
-            trim_airline("Aeroflot Russian Airlines"),
-            "Aeroflot Russian Airlin…"
+            trim_airline("China Southern Airlines"),
+            "China Southern Airl…"
         );
         // Whitespace runs collapse before measuring.
         assert_eq!(trim_airline("Air  France"), "Air France");
@@ -253,7 +249,6 @@ mod tests {
         assert_eq!(heading, Some(CompassPoint::Northeast));
         assert_eq!(distance, "5.6 km away");
         assert_eq!(aircraft_type.as_deref(), Some("AT76"));
-        assert_eq!(screen.stamp.chars().count(), 5);
     }
 
     #[test]

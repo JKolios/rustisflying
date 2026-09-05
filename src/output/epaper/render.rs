@@ -31,7 +31,7 @@ use embedded_graphics::{
     Drawable,
 };
 use epd_waveshare::{color::Color, epd2in7b::Display2in7b, graphics::DisplayRotation};
-use profont::{PROFONT_14_POINT, PROFONT_18_POINT, PROFONT_24_POINT};
+use profont::{PROFONT_18_POINT, PROFONT_24_POINT};
 
 /// Black plane: a SET buffer bit is black ink, a CLEARED bit is white paper.
 const INK: Color = Color::White;
@@ -41,25 +41,27 @@ const PAPER: Color = Color::Black;
 const CHROMATIC_INK: Color = Color::Black;
 const CHROMATIC_PAPER: Color = Color::White;
 
-/// Landscape width after rotation (the native panel is 176x264 portrait).
+/// Landscape size after rotation (the native panel is 176x264 portrait).
 const PANEL_WIDTH: i32 = 264;
+const PANEL_HEIGHT: i32 = 176;
 const MARGIN: i32 = 8;
 
 /// Fonts. Sizes are the largest that fit the panel at readable line breaks:
-/// profont advances are 16px (24 pt), 12px (18 pt), 10px (14 pt).
+/// profont advances are 16px (24 pt) and 12px (18 pt).
 const FONT_HEADER: &MonoFont = &PROFONT_24_POINT;
 const FONT_ROUTE: &MonoFont = &PROFONT_18_POINT;
 const FONT_DETAILS: &MonoFont = &PROFONT_18_POINT;
-const FONT_AIRLINE: &MonoFont = &PROFONT_14_POINT;
-const FONT_STAMP: &MonoFont = &PROFONT_14_POINT;
 
-/// Fixed line positions (top y of each line, px) and the detail line step.
-const Y_HEADER: i32 = 2; // 24 pt
-const Y_RULE: i32 = 34;
-const Y_AIRLINE: i32 = 38; // 14 pt
-const Y_ROUTE: i32 = 57; // 18 pt
-const Y_DETAILS: i32 = 82; // 18 pt, one value per line
-const DETAIL_STEP: i32 = 24;
+/// Fixed line positions (top y of each line, px), spread over the full panel
+/// height. The detail lines don't sit at fixed offsets: they spread evenly
+/// between [`Y_DETAILS`] and [`Y_DETAILS_LAST`] so fewer values leave no
+/// dead space at the bottom.
+const Y_HEADER: i32 = 4; // 24 pt
+const Y_RULE: i32 = 38;
+const Y_AIRLINE: i32 = 46; // 18 pt
+const Y_ROUTE: i32 = 74; // 18 pt
+const Y_DETAILS: i32 = 104; // 18 pt, one value per line
+const Y_DETAILS_LAST: i32 = PANEL_HEIGHT - MARGIN - LINE_HEIGHT; // top of the last line
 const LINE_HEIGHT: i32 = 22;
 
 /// Route arrow geometry and the gaps around it.
@@ -89,7 +91,7 @@ pub fn render(screen: &Screen) -> Planes {
     let mut planes = blank();
     match &screen.body {
         Body::Closest { .. } => render_closest(screen, &mut planes.black, &mut planes.chromatic),
-        Body::Empty { radius_km } => render_empty(screen, *radius_km, &mut planes.black),
+        Body::Empty { radius_km } => render_empty(*radius_km, &mut planes.black),
     }
     planes
 }
@@ -123,18 +125,10 @@ fn render_closest(screen: &Screen, black: &mut Plane, chromatic: &mut Plane) {
     };
 
     draw_text(black, callsign, MARGIN, Y_HEADER, FONT_HEADER);
-    let stamp_w = text_width(&screen.stamp, FONT_STAMP);
-    draw_text(
-        black,
-        &screen.stamp,
-        PANEL_WIDTH - MARGIN - stamp_w,
-        Y_HEADER + 6,
-        FONT_STAMP,
-    );
     draw_rule(black, Y_RULE);
 
     if let Some(airline) = airline {
-        draw_text(black, airline, MARGIN, Y_AIRLINE, FONT_AIRLINE);
+        draw_text(black, airline, MARGIN, Y_AIRLINE, FONT_DETAILS);
     }
     if let Some(route) = route {
         draw_route(route, aircraft_type, black, chromatic, Y_ROUTE);
@@ -144,7 +138,8 @@ fn render_closest(screen: &Screen, black: &mut Plane, chromatic: &mut Plane) {
     }
 
     // Details, one value per line at 18 pt: altitude (with a red trend
-    // triangle), speed, then heading and distance together.
+    // triangle), speed, then heading and distance together. The lines spread
+    // evenly over the space left below the route line.
     let mut lines: Vec<DetailLine> = Vec::new();
     if altitude.is_some() {
         lines.push(DetailLine::Altitude);
@@ -153,8 +148,13 @@ fn render_closest(screen: &Screen, black: &mut Plane, chromatic: &mut Plane) {
         lines.push(DetailLine::Speed);
     }
     lines.push(DetailLine::HeadingDistance);
+    let step = if lines.len() > 1 {
+        (Y_DETAILS_LAST - Y_DETAILS) / (lines.len() as i32 - 1)
+    } else {
+        0
+    };
     for (i, line) in lines.iter().enumerate() {
-        let y = Y_DETAILS + i as i32 * DETAIL_STEP;
+        let y = Y_DETAILS + i as i32 * step;
         match line {
             DetailLine::Altitude => {
                 let alt = altitude.as_deref().unwrap();
@@ -195,15 +195,13 @@ enum DetailLine {
     HeadingDistance,
 }
 
-fn render_empty(screen: &Screen, radius_km: f64, black: &mut Plane) {
+fn render_empty(radius_km: f64, black: &mut Plane) {
     let line1 = "No aircraft";
     let line2 = format!("within {radius_km:.0} km of home");
     let w1 = text_width(line1, FONT_HEADER);
     let w2 = text_width(&line2, FONT_ROUTE);
-    draw_text(black, line1, (PANEL_WIDTH - w1) / 2, 40, FONT_HEADER);
-    draw_text(black, &line2, (PANEL_WIDTH - w2) / 2, 80, FONT_ROUTE);
-    let stamp_w = text_width(&screen.stamp, FONT_STAMP);
-    draw_text(black, &screen.stamp, (PANEL_WIDTH - stamp_w) / 2, 120, FONT_STAMP);
+    draw_text(black, line1, (PANEL_WIDTH - w1) / 2, 60, FONT_HEADER);
+    draw_text(black, &line2, (PANEL_WIDTH - w2) / 2, 104, FONT_ROUTE);
 }
 
 /// Labels for the route line: trimmed names when both fit (with the aircraft
@@ -416,12 +414,9 @@ mod tests {
         TickResult::Empty { radius_km: 30.0 }
     }
 
-    /// Render via the real layout pipeline but with a fixed stamp, so the
-    /// comparison tests don't flake across a minute boundary.
-    fn render_fixed(result: &TickResult) -> Planes {
-        let mut screen = layout::layout(result);
-        screen.stamp = "12:00".into();
-        render(&screen)
+    /// Render via the real layout pipeline.
+    fn render_tick(result: &TickResult) -> Planes {
+        render(&layout::layout(result))
     }
 
     /// A plane that was cleared to paper and had nothing drawn on it
@@ -436,22 +431,22 @@ mod tests {
 
     #[test]
     fn renders_both_variants_without_panicking() {
-        let a = render_fixed(&closest());
-        let b = render_fixed(&empty());
+        let a = render_tick(&closest());
+        let b = render_tick(&empty());
         assert_ne!(frame_bytes(&a), frame_bytes(&b));
     }
 
     #[test]
     fn identical_ticks_render_identically() {
         // The worker's skip-if-unchanged relies on this.
-        let a = render_fixed(&closest());
-        let b = render_fixed(&closest());
+        let a = render_tick(&closest());
+        let b = render_tick(&closest());
         assert_eq!(frame_bytes(&a), frame_bytes(&b));
     }
 
     #[test]
     fn closest_uses_both_inks() {
-        let planes = render_fixed(&closest());
+        let planes = render_tick(&closest());
         let (blank_black, blank_chromatic) = blank_planes();
         // Drawn ink differs from each plane's all-paper state.
         assert_ne!(planes.black.buffer(), blank_black.as_slice());
@@ -460,7 +455,7 @@ mod tests {
 
     #[test]
     fn empty_screen_is_black_only() {
-        let planes = render_fixed(&empty());
+        let planes = render_tick(&empty());
         let (blank_black, blank_chromatic) = blank_planes();
         assert_ne!(planes.black.buffer(), blank_black.as_slice());
         // No red accents on the empty screen: chromatic plane stays at paper.
@@ -497,10 +492,9 @@ mod tests {
     fn every_text_run_fits_the_panel() {
         // Worst case at the current fonts: longest realistic content.
         let screen = Screen {
-            stamp: "12:00".into(),
             body: Body::Closest {
                 callsign: "AEE166".into(),
-                airline: Some("China Southern Airlines…".into()),
+                airline: Some("China Southern Airl…".into()),
                 route: Some(Route::Between {
                     origin: AirportLabel {
                         name: None,
@@ -526,5 +520,7 @@ mod tests {
         assert_ne!(planes.chromatic.buffer(), blank_chromatic.as_slice());
         let suffix_w = text_width(" · A321", FONT_ROUTE);
         assert!(108 + ARROW_TOTAL + suffix_w + 2 * MARGIN <= PANEL_WIDTH);
+        // The capped airline line fits at 18 pt too.
+        assert!(text_width("China Southern Airl…", FONT_DETAILS) + 2 * MARGIN <= PANEL_WIDTH);
     }
 }
