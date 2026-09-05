@@ -115,6 +115,7 @@ mod tests {
             lon: HOME_LON,
             alt_baro: None,
             gs: None,
+            baro_rate: None,
             track: None,
             r: None,
             t: None,

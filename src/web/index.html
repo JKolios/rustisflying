@@ -80,6 +80,7 @@
     const cells = [
       ['distance', f.distance_km == null ? '&mdash;' : Number(f.distance_km).toFixed(1) + ' km'],
       ['altitude', num(f.altitude_ft, 'ft')],
+      ['trend', f.vertical_direction ? esc(f.vertical_direction === 'level' ? 'level flight' : f.vertical_direction) : '&mdash;'],
       ['speed', num(f.ground_speed_kmh, 'km/h')],
       ['type', f.aircraft_type ? esc(f.aircraft_type) : '&mdash;'],
       ['registration', f.registration ? esc(f.registration) : '&mdash;'],

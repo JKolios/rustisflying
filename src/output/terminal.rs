@@ -40,6 +40,9 @@ fn render_closest(info: &FlightInfo) {
     if let Some(alt) = info.altitude_ft {
         details.push(format!("{} ft", alt.round() as i64));
     }
+    if let Some(dir) = info.vertical_direction {
+        details.push(dir.as_str().to_string());
+    }
     if let Some(speed) = info.ground_speed_kmh {
         details.push(format!("{} km/h", speed.round() as i64));
     }
@@ -102,6 +105,7 @@ mod tests {
                 aircraft_type: None,
                 altitude_ft: None,
                 ground_speed_kmh: None,
+                vertical_direction: None,
                 distance_km: 1.0,
             }),
         });

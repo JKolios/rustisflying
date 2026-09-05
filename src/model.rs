@@ -43,6 +43,9 @@ pub struct Aircraft {
     /// Ground speed in knots.
     #[serde(default)]
     pub gs: Option<f64>,
+    /// Barometric vertical rate in ft/min (negative = descending).
+    #[serde(default)]
+    pub baro_rate: Option<f64>,
     /// Track over ground in degrees. Reserved for future renderers
     /// (e-ink compass arrow, web UI).
     #[allow(dead_code)]
@@ -73,6 +76,39 @@ pub struct AirportRef {
     pub name: Option<String>,
 }
 
+/// Vertical rates within ±this many ft/min count as level flight.
+pub const LEVEL_FLIGHT_THRESHOLD_FPM: f64 = 250.0;
+
+/// Whether the aircraft is climbing, descending, or holding altitude,
+/// derived from its reported vertical rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerticalDirection {
+    Ascending,
+    Descending,
+    Level,
+}
+
+impl VerticalDirection {
+    pub fn from_rate(rate_fpm: f64) -> Self {
+        if rate_fpm > LEVEL_FLIGHT_THRESHOLD_FPM {
+            VerticalDirection::Ascending
+        } else if rate_fpm < -LEVEL_FLIGHT_THRESHOLD_FPM {
+            VerticalDirection::Descending
+        } else {
+            VerticalDirection::Level
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VerticalDirection::Ascending => "ascending",
+            VerticalDirection::Descending => "descending",
+            VerticalDirection::Level => "level flight",
+        }
+    }
+}
+
 /// The enriched, display-ready description of one aircraft.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlightInfo {
@@ -85,6 +121,8 @@ pub struct FlightInfo {
     pub altitude_ft: Option<f64>,
     /// Ground speed in km/h (converted from the feed's knots).
     pub ground_speed_kmh: Option<f64>,
+    /// Climb/descent trend, derived from the feed's barometric rate.
+    pub vertical_direction: Option<VerticalDirection>,
     /// Distance from the geofence center in km.
     pub distance_km: f64,
 }
@@ -125,6 +163,7 @@ mod tests {
             "lon": 24.0198,
             "alt_baro": 36000,
             "gs": 402.5,
+            "baro_rate": -1344,
             "track": 182.3,
             "r": "SX-DNB",
             "t": "A320",
@@ -133,7 +172,22 @@ mod tests {
         let ac: Aircraft = serde_json::from_str(json).unwrap();
         assert_eq!(ac.flight.as_deref(), Some("AEE251  "));
         assert_eq!(ac.alt_baro.as_ref().unwrap().feet(), Some(36000.0));
+        assert_eq!(ac.baro_rate, Some(-1344.0));
         assert_eq!(ac.t.as_deref(), Some("A320"));
+    }
+
+    #[test]
+    fn vertical_direction_from_rate() {
+        assert_eq!(VerticalDirection::from_rate(1500.0), VerticalDirection::Ascending);
+        assert_eq!(VerticalDirection::from_rate(-1344.0), VerticalDirection::Descending);
+        assert_eq!(VerticalDirection::from_rate(0.0), VerticalDirection::Level);
+        // The deadband is inclusive: exactly ±threshold still reads as level.
+        assert_eq!(VerticalDirection::from_rate(LEVEL_FLIGHT_THRESHOLD_FPM), VerticalDirection::Level);
+        assert_eq!(VerticalDirection::from_rate(-LEVEL_FLIGHT_THRESHOLD_FPM), VerticalDirection::Level);
+        assert_eq!(
+            VerticalDirection::from_rate(LEVEL_FLIGHT_THRESHOLD_FPM + 1.0),
+            VerticalDirection::Ascending
+        );
     }
 
     #[test]
@@ -157,6 +211,7 @@ mod tests {
             aircraft_type: Some("AT76".into()),
             altitude_ft: Some(6525.0),
             ground_speed_kmh: Some(296.0),
+            vertical_direction: Some(VerticalDirection::Descending),
             distance_km: 5.6,
         };
         let closest = serde_json::to_value(TickResult::Closest {
@@ -166,6 +221,7 @@ mod tests {
         assert_eq!(closest["status"], "closest");
         assert_eq!(closest["flight"]["callsign"], "AEE166");
         assert_eq!(closest["flight"]["origin"]["iata"], "ATH");
+        assert_eq!(closest["flight"]["vertical_direction"], "descending");
         assert_eq!(closest["flight"]["destination"], serde_json::Value::Null);
     }
 }
