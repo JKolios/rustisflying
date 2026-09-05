@@ -12,6 +12,24 @@ serde_json = "1"
 toml = "0.8"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# E-paper rendering: pure Rust, compiles on every platform so the layout can be
+# unit-tested off the Pi. The hardware glue (linux-embedded-hal) is gated behind
+# the `epaper` feature, Linux-only. All display modules ship in the crate;
+# `graphics` enables the embedded-graphics DrawTarget impls and `epd2in13_v3`
+# is the crate's own default LUT feature (the epd2in13_v2 module fails to
+# build when no LUT feature is enabled).
+epd-waveshare = { version = "0.6", default-features = false, features = ["graphics", "epd2in13_v3"] }
+embedded-graphics = "0.8"
+profont = "0.7"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux-embedded-hal = { version = "0.4", optional = true, default-features = false, features = ["spi", "gpio_cdev"] }
+
+[features]
+# Hardware output to the Waveshare 2.7inch e-Paper HAT (B) on the Pi's GPIO
+# header. Build with --features epaper (Linux only); without it, an
+# `[epaper] enabled = true` config prints a warning and is skipped.
+epaper = ["dep:linux-embedded-hal"]
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

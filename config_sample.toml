@@ -20,3 +20,10 @@ max_seen_pos_seconds = 90 # skip aircraft whose last position report is older th
 [web]
 enabled = true
 bind = "127.0.0.1:8080" # use "0.0.0.0:8080" to expose the UI on your LAN (e.g. from a phone) — required when running in Docker, or the port won't be reachable outside the container
+
+# Waveshare 2.7inch e-Paper HAT (B) on the Pi's GPIO header (SPI0, BCM
+# 24/25/17 for BUSY/DC/RST). Requires an image/binary built with
+# --features epaper; in Docker also pass
+# --device /dev/spidev0.0 --device /dev/gpiochip0 (SPI must be enabled).
+[epaper]
+enabled = false

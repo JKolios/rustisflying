@@ -56,6 +56,18 @@ async fn main() -> anyhow::Result<()> {
         });
         outputs.push(Box::new(state));
     }
+    if config.epaper.enabled {
+        #[cfg(all(feature = "epaper", target_os = "linux"))]
+        match output::EpaperOutput::new() {
+            Ok(epaper) => outputs.push(Box::new(epaper)),
+            Err(e) => eprintln!("epaper: output disabled: {e:#}"),
+        }
+        #[cfg(not(all(feature = "epaper", target_os = "linux")))]
+        eprintln!(
+            "warning: [epaper] enabled in config, but this binary was built without e-paper \
+             support (Linux with --features epaper); skipping"
+        );
+    }
 
     let interval_seconds = config.polling.interval_seconds.max(MIN_INTERVAL_SECONDS);
     let mut tick = interval(Duration::from_secs(interval_seconds));

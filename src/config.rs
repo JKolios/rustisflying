@@ -18,6 +18,7 @@ pub struct Config {
     pub api: Api,
     pub filter: Filter,
     pub web: Web,
+    pub epaper: Epaper,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +54,15 @@ pub struct Filter {
 pub struct Web {
     pub enabled: bool,
     pub bind: String,
+}
+
+/// The Waveshare 2.7inch e-Paper HAT (B) on the Pi's GPIO header. Rendering
+/// support is always compiled in, but driving the hardware additionally
+/// requires a binary built with `--features epaper` (Linux only).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct Epaper {
+    pub enabled: bool,
 }
 
 impl Default for Home {
@@ -100,6 +110,12 @@ impl Default for Web {
     }
 }
 
+impl Default for Epaper {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
 impl Config {
     /// Load `config.toml` from the current directory, falling back to
     /// defaults for the whole file or any missing field within it.
@@ -144,6 +160,7 @@ mod tests {
         assert_eq!(config.filter.max_seen_pos_seconds, 90.0);
         assert!(config.web.enabled);
         assert_eq!(config.web.bind, "127.0.0.1:8080");
+        assert!(!config.epaper.enabled);
     }
 
     #[test]
@@ -152,5 +169,12 @@ mod tests {
         assert_eq!(config.home.radius_km, 50.0);
         assert_eq!(config.home.latitude, 0.0); // default
         assert_eq!(config.polling.interval_seconds, 15); // default
+    }
+
+    #[test]
+    fn epaper_toggle_parses() {
+        let config: Config = toml::from_str("[epaper]\nenabled = true").unwrap();
+        assert!(config.epaper.enabled);
+        assert!(config.web.enabled); // untouched
     }
 }
