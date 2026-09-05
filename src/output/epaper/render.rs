@@ -27,7 +27,7 @@ use embedded_graphics::{
     mono_font::{MonoFont, MonoTextStyle},
     prelude::Primitive,
     primitives::{Line, PrimitiveStyle, Triangle},
-    text::Text,
+    text::{Baseline, Text, TextStyleBuilder},
     Drawable,
 };
 use epd_waveshare::{color::Color, epd2in7b::Display2in7b, graphics::DisplayRotation};
@@ -52,17 +52,20 @@ const FONT_HEADER: &MonoFont = &PROFONT_24_POINT;
 const FONT_ROUTE: &MonoFont = &PROFONT_18_POINT;
 const FONT_DETAILS: &MonoFont = &PROFONT_18_POINT;
 
-/// Fixed line positions (top y of each line, px), spread over the full panel
-/// height. The detail lines don't sit at fixed offsets: they spread evenly
-/// between [`Y_DETAILS`] and [`Y_DETAILS_LAST`] so fewer values leave no
-/// dead space at the bottom.
-const Y_HEADER: i32 = 4; // 24 pt
-const Y_RULE: i32 = 38;
-const Y_AIRLINE: i32 = 46; // 18 pt
-const Y_ROUTE: i32 = 74; // 18 pt
-const Y_DETAILS: i32 = 104; // 18 pt, one value per line
+/// Fixed line positions (top y of each line's bounding box, px), spread over
+/// the full panel height. Texts are drawn with `Baseline::Top` (the default
+/// is `Alphabetic`, which would push glyphs above the given y), so a line
+/// occupies `y..y + font height` — 29 px at 24 pt, 22 px at 18 pt. The
+/// detail lines don't sit at fixed offsets: they spread evenly between
+/// [`Y_DETAILS`] and [`Y_DETAILS_LAST`] so fewer values leave no dead space
+/// at the bottom.
+const Y_HEADER: i32 = 4; // 24 pt, 29 px tall
+const Y_RULE: i32 = 36;
+const Y_AIRLINE: i32 = 42; // 18 pt
+const Y_ROUTE: i32 = 68; // 18 pt
+const Y_DETAILS: i32 = 94; // 18 pt, one value per line
 const Y_DETAILS_LAST: i32 = PANEL_HEIGHT - MARGIN - LINE_HEIGHT; // top of the last line
-const LINE_HEIGHT: i32 = 22;
+const LINE_HEIGHT: i32 = 22; // 18 pt line box height
 
 /// Route arrow geometry and the gaps around it.
 const ARROW_GAP: i32 = 3;
@@ -355,17 +358,30 @@ fn draw_rule(black: &mut Plane, y: i32) {
         .ok();
 }
 
+/// Draw `text` with its line box top at `y_top`. (`Text::new` alone would
+/// anchor at the alphabetic baseline, putting glyphs ~17 px above y at
+/// 18 pt — the source of past overlap bugs.)
 fn draw_text(plane: &mut Plane, text: &str, x: i32, y_top: i32, font: &'static MonoFont) {
-    let style = MonoTextStyle::new(font, INK);
-    Text::new(text, Point::new(x, y_top), style).draw(plane).ok();
+    Text::with_text_style(
+        text,
+        Point::new(x, y_top),
+        MonoTextStyle::new(font, INK),
+        TextStyleBuilder::new().baseline(Baseline::Top).build(),
+    )
+    .draw(plane)
+    .ok();
 }
 
 fn text_width(text: &str, font: &'static MonoFont) -> i32 {
-    let style = MonoTextStyle::new(font, INK);
-    Text::new(text, Point::zero(), style)
-        .bounding_box()
-        .size
-        .width as i32
+    Text::with_text_style(
+        text,
+        Point::zero(),
+        MonoTextStyle::new(font, INK),
+        TextStyleBuilder::new().baseline(Baseline::Top).build(),
+    )
+    .bounding_box()
+    .size
+    .width as i32
 }
 
 #[cfg(test)]
@@ -427,6 +443,119 @@ mod tests {
             planes.black.buffer().to_vec(),
             planes.chromatic.buffer().to_vec(),
         )
+    }
+
+    /// Composite the two planes of a frame into a PNG — what the panel should
+    /// show, in landscape as drawn — so the layout can be eyeballed without
+    /// hardware. Run with `cargo test -- --ignored preview`; writes
+    /// `epaper_preview_{closest,empty}.png` next to `Cargo.toml`.
+    #[test]
+    #[ignore = "writes preview files"]
+    fn writes_preview_pngs() {
+        let dir = env!("CARGO_MANIFEST_DIR");
+        for (name, tick) in [("closest", closest()), ("empty", empty())] {
+            let planes = render_tick(&tick);
+            std::fs::write(
+                format!("{dir}/epaper_preview_{name}.png"),
+                composite_png(&planes, 3),
+            )
+            .unwrap();
+        }
+    }
+
+    /// Landscape pixels of a frame, magnified `scale`x, as an RGB PNG. Panel
+    /// colors: a SET bit in the black plane is black ink, a CLEARED bit in
+    /// the chromatic plane is red ink (red wins where they meet).
+    fn composite_png(planes: &Planes, scale: usize) -> Vec<u8> {
+        const W: usize = 264; // landscape width (PANEL_WIDTH)
+        const H: usize = 176; // landscape height (PANEL_HEIGHT)
+        let mut rgb = vec![0xFF; W * scale * H * scale * 3];
+        for ry in 0..H {
+            for rx in 0..W {
+                // Rotate90 mapping (crate graphics.rs): rotated (rx, ry) ->
+                // native (175 - ry, rx), MSB-first, 22 bytes per native row.
+                let nx = 175 - ry;
+                let ny = rx;
+                let idx = nx / 8 + ny * 22;
+                let bit = 0x80 >> (nx % 8);
+                let red = planes.chromatic.buffer()[idx] & bit == 0;
+                let black = planes.black.buffer()[idx] & bit != 0;
+                let px = if red {
+                    [0xDD, 0x22, 0x22]
+                } else if black {
+                    [0x00, 0x00, 0x00]
+                } else {
+                    [0xFF, 0xFF, 0xFF]
+                };
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        let o = (((ry * scale + dy) * W * scale) + rx * scale + dx) * 3;
+                        rgb[o..o + 3].copy_from_slice(&px);
+                    }
+                }
+            }
+        }
+        png_rgb((W * scale) as u32, (H * scale) as u32, &rgb)
+    }
+
+    /// A minimal PNG (truecolor, no interlace, stored deflate blocks) — just
+    /// enough to not drag in an image crate for previews.
+    fn png_rgb(width: u32, height: u32, rgb: &[u8]) -> Vec<u8> {
+        let row = width as usize * 3;
+        let mut raw = Vec::with_capacity((row + 1) * height as usize);
+        for y in 0..height as usize {
+            raw.push(0); // filter: none
+            raw.extend_from_slice(&rgb[y * row..(y + 1) * row]);
+        }
+        let mut z = vec![0x78, 0x01]; // zlib: deflate, fastest
+        let mut blocks = raw.chunks(65535).peekable();
+        while let Some(block) = blocks.next() {
+            z.push(u8::from(blocks.peek().is_none())); // BFINAL on the last block
+            z.extend_from_slice(&(block.len() as u16).to_le_bytes());
+            z.extend_from_slice(&(!(block.len() as u16)).to_le_bytes());
+            z.extend_from_slice(block);
+        }
+        z.extend_from_slice(&adler32(&raw).to_be_bytes());
+
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = Vec::with_capacity(13);
+        ihdr.extend_from_slice(&width.to_be_bytes());
+        ihdr.extend_from_slice(&height.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit truecolor
+        png_chunk(&mut out, b"IHDR", &ihdr);
+        png_chunk(&mut out, b"IDAT", &z);
+        png_chunk(&mut out, b"IEND", &[]);
+        out
+    }
+
+    fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        let mut crc_data = Vec::with_capacity(4 + data.len());
+        crc_data.extend_from_slice(kind);
+        crc_data.extend_from_slice(data);
+        out.extend_from_slice(&crc32(&crc_data).to_be_bytes());
+    }
+
+    fn adler32(data: &[u8]) -> u32 {
+        let (mut a, mut b) = (1u32, 0u32);
+        for &byte in data {
+            a = (a + byte as u32) % 65521;
+            b = (b + a) % 65521;
+        }
+        b << 16 | a
+    }
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in data {
+            crc ^= byte as u32;
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xEDB8_8320 & (0u32.wrapping_sub(crc & 1)));
+            }
+        }
+        !crc
     }
 
     #[test]
