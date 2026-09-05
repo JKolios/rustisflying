@@ -84,8 +84,10 @@ below ~10 s without a good reason.
 
 ## Configuration
 
-See `config.toml` — every key has a default (documented in
+See `config_sample.toml` — every key has a default (documented in
 `src/config.rs`), and missing keys fall back to defaults.
+
+Copy `config_sample.toml` to `config.toml` and fill it out according to your preferences.
 
 ## Project layout
 
